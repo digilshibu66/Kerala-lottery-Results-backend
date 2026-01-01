@@ -37,9 +37,7 @@ app.get('/api/draws', async (req, res) => {
 
         const data = result.rows.map(draw => ({
             ...draw,
-            pdf_url: draw.pdf_url && draw.pdf_url.startsWith('/public')
-                ? `${req.protocol}://${req.get('host')}${draw.pdf_url}`
-                : draw.pdf_url
+            pdf_url: draw.pdf_url
         }));
 
         res.json({ success: true, data });
@@ -136,9 +134,7 @@ app.get('/api/check', async (req, res) => {
         }
 
         if (bestWin) {
-            const fullPdfUrl = draw.pdf_url && draw.pdf_url.startsWith('/public')
-                ? `${req.protocol}://${req.get('host')}${draw.pdf_url}`
-                : draw.pdf_url;
+            const fullPdfUrl = draw.pdf_url;
 
             return res.json({
                 success: true,
@@ -154,9 +150,7 @@ app.get('/api/check', async (req, res) => {
                 }
             });
         } else {
-            const fullPdfUrl = draw.pdf_url && draw.pdf_url.startsWith('/public')
-                ? `${req.protocol}://${req.get('host')}${draw.pdf_url}`
-                : draw.pdf_url;
+            const fullPdfUrl = draw.pdf_url;
 
             return res.json({
                 success: true,
