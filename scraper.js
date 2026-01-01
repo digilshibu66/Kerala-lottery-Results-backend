@@ -125,51 +125,61 @@ async function scrapeDraws(targetDate = null) {
                     console.log('Uploaded to Supabase Storage successfully!');
                 }
 
-                // Insert into DB
+                // 1. Update/Insert the Draw and PDF URL first (Critical step)
                 const client = await pool.connect();
+                let drawId;
                 try {
                     await client.query('BEGIN');
                     const drawNo = extractDrawNo(draw.name);
-                    // Insert or Update Draw (UPSERT)
                     const drawRes = await client.query(
                         `INSERT INTO lottery_draws (draw_date, lottery_name, draw_no, pdf_url) 
                          VALUES ($1, $2, $3, $4) 
-                         ON CONFLICT (draw_date) DO UPDATE SET pdf_url = EXCLUDED.pdf_url 
+                         ON CONFLICT (draw_date) DO UPDATE SET 
+                            pdf_url = EXCLUDED.pdf_url,
+                            lottery_name = EXCLUDED.lottery_name,
+                            draw_no = EXCLUDED.draw_no
                          RETURNING id`,
                         [draw.date, draw.name, drawNo, finalPdfUrl]
                     );
-                    const drawId = drawRes.rows[0].id;
-
-                    for (const prize of results) {
-                        // UPSERT Categories
-                        const catRes = await client.query(
-                            `INSERT INTO prize_categories (draw_id, category_name, prize_amount) 
-                             VALUES ($1, $2, $3) 
-                             ON CONFLICT (draw_id, category_name) DO UPDATE SET prize_amount = EXCLUDED.prize_amount
-                             RETURNING id`,
-                            [drawId, prize.category, prize.amount]
-                        );
-                        const catId = catRes.rows[0].id;
-
-                        for (const ticket of prize.tickets) {
-                            const { series, number } = parseTicketString(ticket);
-                            // UPSERT Winning Numbers
-                            await client.query(
-                                `INSERT INTO winning_numbers (category_id, ticket_number, series, number) 
-                                 VALUES ($1, $2, $3, $4)
-                                 ON CONFLICT (category_id, ticket_number) DO NOTHING`,
-                                [catId, ticket, series, number]
-                            );
-                        }
-                    }
+                    drawId = drawRes.rows[0].id;
                     await client.query('COMMIT');
-                    console.log(`Successfully saved ${draw.date} to database!`);
+                    console.log(`[OK] PDF URL updated for ${draw.date}`);
                 } catch (dbErr) {
                     await client.query('ROLLBACK');
-                    console.error(`DB Error for ${draw.date}:`, dbErr.message);
-                } finally {
-                    client.release();
+                    console.error(`Status update failed for ${draw.date}:`, dbErr.message);
                 }
+
+                // 2. Separately try to update winners (Non-critical, can't block the PDF link)
+                if (drawId) {
+                    try {
+                        await client.query('BEGIN');
+                        for (const prize of results) {
+                            const catRes = await client.query(
+                                `INSERT INTO prize_categories (draw_id, category_name, prize_amount) 
+                                 VALUES ($1, $2, $3) 
+                                 ON CONFLICT (draw_id, category_name) DO UPDATE SET prize_amount = EXCLUDED.prize_amount
+                                 RETURNING id`,
+                                [drawId, prize.category, prize.amount]
+                            );
+                            const catId = catRes.rows[0].id;
+
+                            for (const ticket of prize.tickets) {
+                                const { series, number } = parseTicketString(ticket);
+                                await client.query(
+                                    `INSERT INTO winning_numbers (category_id, ticket_number, series, number) 
+                                     VALUES ($1, $2, $3, $4)
+                                     ON CONFLICT (category_id, ticket_number) DO NOTHING`,
+                                    [catId, ticket, series, number]
+                                );
+                            }
+                        }
+                        await client.query('COMMIT');
+                    } catch (prizeErr) {
+                        await client.query('ROLLBACK');
+                        console.error(`Winners update failed for ${draw.date}:`, prizeErr.message);
+                    }
+                }
+                client.release();
             } catch (scrapeErr) {
                 console.error(`Scrape Error for ${draw.date}:`, scrapeErr.message);
             }
