@@ -7,8 +7,7 @@
     "start": "node index.js",
     "scrape": "node scraper.js",
     "init-db": "node init_db.js",
-    "seed": "node seed.js",
-    "fix-db": "node fix_db.js"
+    "seed": "node seed.js"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +20,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "helmet": "^8.1.0",
     "node-cron": "^4.2.1",
     "pdf-parse": "^1.1.1",
     "pg": "^8.16.3"
