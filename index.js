@@ -180,8 +180,8 @@ app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
 
-// Admin endpoint to manually trigger scrape
-app.post('/api/admin/trigger-scrape', async (req, res) => {
+// Admin endpoint to manually trigger scrape (Changed to GET for easier browser access)
+app.get('/api/admin/trigger-scrape', async (req, res) => {
     try {
         const { all } = req.query;
         if (all === 'true') {
