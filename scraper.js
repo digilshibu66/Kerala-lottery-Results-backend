@@ -7,6 +7,13 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
+const { createClient } = require('@supabase/supabase-js');
+
+// Initialize Supabase client
+const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_KEY
+);
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -97,6 +104,28 @@ async function scrapeDraws(targetDate = null) {
                 const pdfData = await pdf(pdfResponse.data);
                 const results = parseLotteryPdfText(pdfData.text);
 
+                // UPLOAD TO SUPABASE STORAGE
+                console.log(`Uploading ${filename} to Supabase Storage...`);
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('lottery-pdfs')
+                    .upload(filename, pdfResponse.data, {
+                        contentType: 'application/pdf',
+                        upsert: true
+                    });
+
+                if (uploadError) {
+                    console.error('Supabase Upload Error:', uploadError.message);
+                    // Fallback to local URL if upload fails (though it will be ephemeral)
+                    var finalPdfUrl = `/public/pdfs/${filename}`;
+                } else {
+                    // Get Public URL
+                    const { data: { publicUrl } } = supabase.storage
+                        .from('lottery-pdfs')
+                        .getPublicUrl(filename);
+                    var finalPdfUrl = publicUrl;
+                    console.log('Uploaded to Supabase Storage successfully!');
+                }
+
                 // Insert into DB
                 const client = await pool.connect();
                 try {
@@ -104,7 +133,7 @@ async function scrapeDraws(targetDate = null) {
                     const drawNo = extractDrawNo(draw.name);
                     const drawRes = await client.query(
                         'INSERT INTO lottery_draws (draw_date, lottery_name, draw_no, pdf_url) VALUES ($1, $2, $3, $4) RETURNING id',
-                        [draw.date, draw.name, drawNo, localUrl]
+                        [draw.date, draw.name, drawNo, finalPdfUrl]
                     );
                     const drawId = drawRes.rows[0].id;
 
