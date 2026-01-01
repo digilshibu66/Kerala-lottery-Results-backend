@@ -180,6 +180,46 @@ app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
 
+// Fix Database Constraints
+app.get('/api/admin/fix-db', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Fix prize_categories
+        await client.query(`
+            DELETE FROM prize_categories a USING (
+                SELECT MIN(ctid) as keep_ctid, draw_id, category_name
+                FROM prize_categories
+                GROUP BY draw_id, category_name
+                HAVING COUNT(*) > 1
+            ) b
+            WHERE a.draw_id = b.draw_id AND a.category_name = b.category_name AND a.ctid <> b.keep_ctid
+        `);
+        await client.query('ALTER TABLE prize_categories ADD CONSTRAINT unique_draw_category UNIQUE (draw_id, category_name)');
+
+        // Fix winning_numbers
+        await client.query(`
+            DELETE FROM winning_numbers a USING (
+                SELECT MIN(ctid) as keep_ctid, category_id, ticket_number
+                FROM winning_numbers
+                GROUP BY category_id, ticket_number
+                HAVING COUNT(*) > 1
+            ) b
+            WHERE a.category_id = b.category_id AND a.ticket_number = b.ticket_number AND a.ctid <> b.keep_ctid
+        `);
+        await client.query('ALTER TABLE winning_numbers ADD CONSTRAINT unique_category_ticket UNIQUE (category_id, ticket_number)');
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Database constraints added successfully!' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
 // Status endpoint to check database URLs
 app.get('/api/admin/status', async (req, res) => {
     try {

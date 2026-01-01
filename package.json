@@ -7,7 +7,8 @@
     "start": "node index.js",
     "scrape": "node scraper.js",
     "init-db": "node init_db.js",
-    "seed": "node seed.js"
+    "seed": "node seed.js",
+    "fix-db": "node fix_db.js"
   },
   "keywords": [],
   "author": "",
