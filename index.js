@@ -180,7 +180,17 @@ app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
 
-// Admin endpoint to manually trigger scrape (Changed to GET for easier browser access)
+// Status endpoint to check database URLs
+app.get('/api/admin/status', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT draw_date, lottery_name, pdf_url FROM lottery_draws ORDER BY draw_date DESC');
+        res.json({ success: true, count: result.rows.length, data: result.rows });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// Admin endpoint to manually trigger scrape
 app.get('/api/admin/trigger-scrape', async (req, res) => {
     try {
         const { all } = req.query;
