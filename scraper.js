@@ -80,10 +80,17 @@ async function scrapeDraws(targetDate = null) {
         // 2. Process each row
         for (const draw of rowsToProcess) {
             // Check if already in DB
-            const exists = await pool.query('SELECT id FROM lottery_draws WHERE draw_date = $1', [draw.date]);
+            const exists = await pool.query('SELECT id, pdf_url FROM lottery_draws WHERE draw_date = $1', [draw.date]);
+
             if (exists.rows.length > 0) {
-                if (targetDate) console.log(`Skipping ${draw.date}: Already exists.`);
-                continue;
+                const currentUrl = exists.rows[0].pdf_url;
+                // If it exists AND already has a Supabase/External link, skip it
+                if (currentUrl && !currentUrl.startsWith('/public')) {
+                    if (targetDate) console.log(`Skipping ${draw.date}: Already exists with valid URL.`);
+                    continue;
+                }
+                // If it's a local URL, we continue so we can "repair" it by uploading to Supabase
+                console.log(`[Repair Mode] Found broken local URL for ${draw.date}. Re-processing...`);
             }
 
             console.log(`\n--- Scraping: ${draw.name} (${draw.date}) ---`);
@@ -131,23 +138,34 @@ async function scrapeDraws(targetDate = null) {
                 try {
                     await client.query('BEGIN');
                     const drawNo = extractDrawNo(draw.name);
+                    // Insert or Update Draw (UPSERT)
                     const drawRes = await client.query(
-                        'INSERT INTO lottery_draws (draw_date, lottery_name, draw_no, pdf_url) VALUES ($1, $2, $3, $4) RETURNING id',
+                        `INSERT INTO lottery_draws (draw_date, lottery_name, draw_no, pdf_url) 
+                         VALUES ($1, $2, $3, $4) 
+                         ON CONFLICT (draw_date) DO UPDATE SET pdf_url = EXCLUDED.pdf_url 
+                         RETURNING id`,
                         [draw.date, draw.name, drawNo, finalPdfUrl]
                     );
                     const drawId = drawRes.rows[0].id;
 
                     for (const prize of results) {
+                        // UPSERT Categories
                         const catRes = await client.query(
-                            'INSERT INTO prize_categories (draw_id, category_name, prize_amount) VALUES ($1, $2, $3) RETURNING id',
+                            `INSERT INTO prize_categories (draw_id, category_name, prize_amount) 
+                             VALUES ($1, $2, $3) 
+                             ON CONFLICT (draw_id, category_name) DO UPDATE SET prize_amount = EXCLUDED.prize_amount
+                             RETURNING id`,
                             [drawId, prize.category, prize.amount]
                         );
                         const catId = catRes.rows[0].id;
 
                         for (const ticket of prize.tickets) {
                             const { series, number } = parseTicketString(ticket);
+                            // UPSERT Winning Numbers
                             await client.query(
-                                'INSERT INTO winning_numbers (category_id, ticket_number, series, number) VALUES ($1, $2, $3, $4)',
+                                `INSERT INTO winning_numbers (category_id, ticket_number, series, number) 
+                                 VALUES ($1, $2, $3, $4)
+                                 ON CONFLICT (category_id, ticket_number) DO NOTHING`,
                                 [catId, ticket, series, number]
                             );
                         }
