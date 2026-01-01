@@ -99,15 +99,7 @@ async function scrapeDraws(targetDate = null) {
                 // Download PDF
                 const pdfResponse = await axios.get(draw.url, { ...AXIOS_CONFIG, responseType: 'arraybuffer' });
 
-                // SAVE PDF LOCALLY
-                const pdfDir = path.join(__dirname, 'public', 'pdfs');
-                if (!fs.existsSync(pdfDir)) fs.mkdirSync(pdfDir, { recursive: true });
-
                 const filename = `${draw.name.replace(/[^a-z0-9]/gi, '_')}_${draw.date}.pdf`;
-                const localPath = path.join(pdfDir, filename);
-                fs.writeFileSync(localPath, pdfResponse.data);
-
-                const localUrl = `/public/pdfs/${filename}`;
                 const pdfData = await pdf(pdfResponse.data);
                 const results = parseLotteryPdfText(pdfData.text);
 
@@ -122,8 +114,8 @@ async function scrapeDraws(targetDate = null) {
 
                 if (uploadError) {
                     console.error('Supabase Upload Error:', uploadError.message);
-                    // Fallback to local URL if upload fails (though it will be ephemeral)
-                    var finalPdfUrl = `/public/pdfs/${filename}`;
+                    // Fallback to official URL if mirror fails
+                    var finalPdfUrl = draw.url;
                 } else {
                     // Get Public URL
                     const { data: { publicUrl } } = supabase.storage
