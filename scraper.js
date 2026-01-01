@@ -83,14 +83,8 @@ async function scrapeDraws(targetDate = null) {
             const exists = await pool.query('SELECT id, pdf_url FROM lottery_draws WHERE draw_date = $1', [draw.date]);
 
             if (exists.rows.length > 0) {
-                const currentUrl = exists.rows[0].pdf_url;
-                // If it exists AND already has a Supabase/External link, skip it
-                if (currentUrl && !currentUrl.startsWith('/public')) {
-                    if (targetDate) console.log(`Skipping ${draw.date}: Already exists with valid URL.`);
-                    continue;
-                }
-                // If it's a local URL, we continue so we can "repair" it by uploading to Supabase
-                console.log(`[Repair Mode] Found broken local URL for ${draw.date}. Re-processing...`);
+                if (targetDate) console.log(`Skipping ${draw.date}: Already exists.`);
+                continue;
             }
 
             console.log(`\n--- Scraping: ${draw.name} (${draw.date}) ---`);
@@ -103,27 +97,10 @@ async function scrapeDraws(targetDate = null) {
                 const pdfData = await pdf(pdfResponse.data);
                 const results = parseLotteryPdfText(pdfData.text);
 
-                // UPLOAD TO SUPABASE STORAGE
-                console.log(`Uploading ${filename} to Supabase Storage...`);
-                const { data: uploadData, error: uploadError } = await supabase.storage
-                    .from('lottery-pdfs')
-                    .upload(filename, pdfResponse.data, {
-                        contentType: 'application/pdf',
-                        upsert: true
-                    });
+                // Use the original URL for storage to save space
+                const finalPdfUrl = draw.url;
+                console.log(`Using original URL for database: ${finalPdfUrl}`);
 
-                if (uploadError) {
-                    console.error('Supabase Upload Error:', uploadError.message);
-                    // Fallback to official URL if mirror fails
-                    var finalPdfUrl = draw.url;
-                } else {
-                    // Get Public URL
-                    const { data: { publicUrl } } = supabase.storage
-                        .from('lottery-pdfs')
-                        .getPublicUrl(filename);
-                    var finalPdfUrl = publicUrl;
-                    console.log('Uploaded to Supabase Storage successfully!');
-                }
 
                 // 1. Update/Insert the Draw and PDF URL first (Critical step)
                 const client = await pool.connect();
@@ -335,27 +312,17 @@ function extractTicketsFromBlock(block, hasSeries) {
 function startScheduler() {
     console.log('Initializing Scheduler...');
 
-    // Schedule to run at 3:30 PM and 4:00 PM IST
-    // 3:30 PM IST -> "30 15 * * *"
-    // 4:00 PM IST -> "0 16 * * *"
-
-    cron.schedule('30 15 * * *', () => {
-        console.log('Running scheduled 3:30 PM IST scrape...');
+    // Schedule to run at 3:00, 3:10, 3:20, 3:30, 3:40, 3:50 PM IST
+    // Cron format: minute hour day month day-of-week
+    cron.schedule('0,10,20,30,40,50 15 * * *', () => {
+        console.log(`Running scheduled scrape at ${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST...`);
         scrapeLatestDraw();
     }, {
         scheduled: true,
         timezone: "Asia/Kolkata"
     });
 
-    cron.schedule('0 16 * * *', () => {
-        console.log('Running scheduled 4:00 PM IST scrape...');
-        scrapeLatestDraw();
-    }, {
-        scheduled: true,
-        timezone: "Asia/Kolkata"
-    });
-
-    console.log('Scheduler is running. Jobs scheduled for 3:30 PM and 4:00 PM IST daily.');
+    console.log('Scheduler is running. Jobs scheduled for 3:00 PM - 3:50 PM IST (every 10 mins).');
 }
 
 // Allow manual run if called directly
