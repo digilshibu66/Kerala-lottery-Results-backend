@@ -312,9 +312,9 @@ function extractTicketsFromBlock(block, hasSeries) {
 function startScheduler() {
     console.log('Initializing Scheduler...');
 
-    // Schedule to run every 10 minutes from 4:00 PM to 5:00 PM IST
-    // 4:00, 4:10, 4:20, 4:30, 4:40, 4:50, 5:00 PM IST
-    cron.schedule('0,10,20,30,40,50 16,17 * * *', () => {
+    // Schedule to run every 10 minutes from 3:00 PM to 5:00 PM IST
+    // 3:00, 3:10, 3:20, 3:30, 3:40, 3:50, 4:00, 4:10, 4:20, 4:30, 4:40, 4:50, 5:00 PM IST
+    cron.schedule('0,10,20,30,40,50 15,16,17 * * *', () => {
         // We only want to run at 5:00 PM on the 17th hour, so we check minutes if hour is 17
         const now = new Date();
         const istDate = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
@@ -332,7 +332,7 @@ function startScheduler() {
         timezone: "Asia/Kolkata"
     });
 
-    console.log('Scheduler is running. Jobs scheduled for 4:00 PM - 5:00 PM IST every 10 mins.');
+    console.log('Scheduler is running. Jobs scheduled for 3:00 PM - 5:00 PM IST every 10 mins.');
 }
 
 // Allow manual run if called directly
