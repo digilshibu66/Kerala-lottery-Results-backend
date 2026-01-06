@@ -61,16 +61,29 @@ app.get('/api/check', async (req, res) => {
     // Clean ticket input (remove spaces, uppercase)
     const cleanTicket = ticket.replace(/\s+/g, '').toUpperCase();
 
-    // Extract potential parts: Series (2 letters) + Number (6 digits)
-    // Or just number.
-    // Regex: Start with optional letters, then digits.
+    // Extract potential parts: Series (2 letters) + Number (digits)
+    // Supports formats: GB6789012, 987654, 8765
     const ticketMatch = cleanTicket.match(/^([A-Z]{0,2})(\d+)$/);
     if (!ticketMatch) {
-        return res.status(400).json({ success: false, message: 'Invalid ticket format.' });
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Invalid ticket format. Please enter letters (optional) followed by digits.' 
+        });
     }
 
-    const inputSeries = ticketMatch[1] || null; // e.g. "AB" or null
-    const inputNumber = ticketMatch[2]; // e.g. "123456"
+    const inputSeries = ticketMatch[1] || null; // e.g. "GB" or null
+    const inputNumber = ticketMatch[2]; // e.g. "6789012" or "987654" or "8765"
+
+    // Validate number length: minimum 4 digits, maximum 9 digits
+    if (inputNumber.length < 4 || inputNumber.length > 9) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Ticket number must be between 4 and 9 digits.' 
+        });
+    }
+
+    // Extract last 4 digits for consolation prize checking
+    const last4Digits = inputNumber.slice(-4);
 
     try {
         // 1. Find the draw for the date
@@ -89,15 +102,7 @@ app.get('/api/check', async (req, res) => {
 
         const draw = drawResult.rows[0];
 
-        // 2. Fetch winning numbers for this draw
-        // We fetch all winners and match related to the input ticket.
-        // Optimization: In a real app with millions of rows, we'd query specifically.
-        // But prize structures vary (Last 4 digits, etc.). 
-        // We will query for exact match or suffix match from DB.
-
-        // Approach: Select items where inputNumber ends with winning_number
-        // AND (series matches OR series is null).
-
+        // 2. Fetch all winning numbers for this draw
         const winningQuery = `
             SELECT wn.series, wn.number, wn.ticket_number as full_winning_ticket,
                    pc.category_name, pc.prize_amount
@@ -110,29 +115,50 @@ app.get('/api/check', async (req, res) => {
 
         let bestWin = null;
 
+        // Check each winning number against the input
         for (const win of winners.rows) {
-            // Check Logic
             const winNum = win.number;
             const winSeries = win.series;
+            let isMatch = false;
 
-            // 1. Series check: If winner has specific series, input must match.
-            // If winner has no series (common for lower prizes), any series matches.
-            if (winSeries && winSeries !== inputSeries) {
-                continue;
+            // MATCHING STRATEGY (3 levels):
+            // 1. Full match with series (if user provided series): inputSeries + inputNumber === winSeries + winNum
+            // 2. Number-only match: inputNumber === winNum (ignoring series)
+            // 3. Last 4 digits match: last4Digits === last 4 of winNum
+
+            // Level 1: Full match with series
+            if (inputSeries && winSeries) {
+                if (inputSeries === winSeries && inputNumber === winNum) {
+                    isMatch = true;
+                }
             }
 
-            // 2. Number check:
-            // Input must end with the winning number (to handle "Last 4 digits" prizes).
-            // Example: Win "456", Ticket "123456" -> Match.
-            // Example: Win "123456", Ticket "123456" -> Match.
-            if (inputNumber.endsWith(winNum)) {
-                // If we have a match, check if it's better than current bestWin
+            // Level 2: Number-only match (when user doesn't provide series OR winner has no series)
+            if (!isMatch) {
+                if (inputNumber === winNum) {
+                    // If winner has a series but user didn't provide one, still match on number
+                    // This handles cases where user types only digits
+                    isMatch = true;
+                }
+            }
+
+            // Level 3: Last 4 digits match (for consolation prizes)
+            if (!isMatch) {
+                const winLast4 = winNum.slice(-4);
+                if (last4Digits === winLast4) {
+                    isMatch = true;
+                }
+            }
+
+            // If we found a match, check if it's the best prize so far
+            if (isMatch) {
                 if (!bestWin || parseFloat(win.prize_amount) > parseFloat(bestWin.prize_amount)) {
                     bestWin = win;
                 }
             }
         }
 
+        // Return result
         if (bestWin) {
             const fullPdfUrl = draw.pdf_url;
 
